@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>簡易區塊鏈錢包系統</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(to right, #e6f0ff, #f2f7ff);
+        }
+        .card {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            border-radius: 1rem;
+        }
+        .card-header {
+            font-weight: bold;
+            background-color: #007bff;
+            color: white;
+            border-top-left-radius: 1rem;
+            border-top-right-radius: 1rem;
+        }
+        .form-control {
+            border-radius: 0.5rem;
+        }
+        .text-break {
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+<div class="container py-5">
+    <h1 class="mb-5 text-center text-primary">簡易區塊鏈錢包系統</h1>
+
+    <div class="card mb-4">
+        <div class="card-header">產生錢包</div>
+        <div class="card-body">
+            <button class="btn btn-outline-primary mb-3" onclick="generateWallet()">產生新錢包</button>
+            <div class="mb-2">
+                <label class="form-label">私鑰</label>
+                <div class="form-control text-danger text-break" id="private_key"></div>
+            </div>
+            <div class="mb-2">
+                <label class="form-label">公開金鑰（地址）</label>
+                <div class="form-control text-success text-break" id="public_key"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header">發送簽章交易</div>
+        <div class="card-body">
+            <div class="mb-3">
+                <label class="form-label">收款人地址</label>
+                <input id="recipient" type="text" class="form-control" placeholder="請輸入接收地址">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">金額</label>
+                <input id="amount" type="number" class="form-control" placeholder="請輸入金額">
+            </div>
+            <button class="btn btn-outline-success" onclick="sendTransaction()">發送交易</button>
+            <button class="btn btn-outline-secondary ms-2" onclick="previewSignedTx()">預覽簽章 JSON</button>
+            <p class="mt-3 text-muted" id="tx_result"></p>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header">查詢我的交易紀錄</div>
+        <div class="card-body">
+            <button class="btn btn-outline-info" onclick="searchMyTransactions()">查詢紀錄</button>
+            <pre class="bg-light p-3 mt-3" id="tx_history" style="max-height: 300px; overflow:auto; white-space: pre-wrap; word-wrap: break-word;"></pre>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header">查看區塊鏈</div>
+        <div class="card-body">
+            <button class="btn btn-warning mb-3" onclick="mineBlock()">挖礦</button>
+            <button class="btn btn-outline-secondary mb-3" onclick="getChain()">載入區塊鏈</button>
+            <div id="block_display"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal -->
+<div class="modal fade" id="txModal" tabindex="-1" aria-labelledby="txModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="txModalLabel">簽章交易 JSON 預覽</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <pre id="signed_json" class="bg-light p-3 text-break"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    let privateKeyHex = '';
+    let publicKeyHex = '';
+
+    function generateWallet() {
+        axios.get('/generate_wallet').then(res => {
+            privateKeyHex = res.data.private_key;
+            publicKeyHex = res.data.public_key;
+            document.getElementById("private_key").textContent = privateKeyHex;
+            document.getElementById("public_key").textContent = publicKeyHex;
+        });
+    }
+
+    function sendTransaction() {
+        const recipient = document.getElementById("recipient").value;
+        const amount = parseInt(document.getElementById("amount").value);
+
+        axios.post('/sign_and_send_transaction', {
+            sender_private_key: privateKeyHex,
+            sender_public_key: publicKeyHex,
+            recipient: recipient,
+            amount: amount
+        }).then(res => {
+            document.getElementById("tx_result").textContent = res.data.message;
+        }).catch(err => {
+            document.getElementById("tx_result").textContent = err.response?.data || err.message;
+        });
+    }
+
+    function previewSignedTx() {
+        const recipient = document.getElementById("recipient").value;
+        const amount = parseInt(document.getElementById("amount").value);
+
+        axios.post('/preview_signed_tx', {
+            sender_private_key: privateKeyHex,
+            sender_public_key: publicKeyHex,
+            recipient: recipient,
+            amount: amount
+        }).then(res => {
+            document.getElementById("signed_json").textContent = JSON.stringify(res.data, null, 2);
+            const modal = new bootstrap.Modal(document.getElementById('txModal'));
+            modal.show();
+        });
+    }
+
+    function getChain() {
+        axios.get('/get_chain').then(res => {
+            const blocks = res.data.chain;
+            const container = document.getElementById("block_display");
+            container.innerHTML = '';
+            blocks.forEach(block => {
+                const txHtml = block.transactions.map(tx =>
+                    `<tr><td class='text-break'>${tx.sender}</td><td class='text-break'>${tx.recipient}</td><td>${tx.amount}</td></tr>`
+                ).join('');
+                const blockHtml = `
+                    <div class="card mb-4">
+                        <div class="card-header">區塊 #${block.index}</div>
+                        <div class="card-body">
+                            <p><strong>時間：</strong> ${block.timestamp}</p>
+                            <p><strong>前一區塊 Hash：</strong><br><small class="text-break">${block.previous_hash}</small></p>
+                            <p><strong>工作量證明：</strong> ${block.proof}</p>
+                            <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#tx-${block.index}" aria-expanded="false">
+                                查看交易明細 (${block.transactions.length} 筆)
+                            </button>
+                            <div class="collapse mt-3" id="tx-${block.index}">
+                                <table class="table table-bordered table-sm">
+                                    <thead><tr><th>發送者</th><th>接收者</th><th>金額</th></tr></thead>
+                                    <tbody>${txHtml}</tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                container.innerHTML += blockHtml;
+            });
+        });
+    }
+
+    function searchMyTransactions() {
+        axios.get(`/search_address/${publicKeyHex}`).then(res => {
+            document.getElementById("tx_history").textContent = JSON.stringify(res.data, null, 2);
+        });
+    }
+
+    function mineBlock() {
+        axios.get('/mine_block').then(res => {
+            alert('區塊已挖出！區塊編號：' + res.data.block.index);
+            getChain();
+        }).catch(err => {
+            alert('挖礦失敗：' + (err.response?.data || err.message));
+        });
+    }
+</script>
+</body>
+</html>
